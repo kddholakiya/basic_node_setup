@@ -1,0 +1,20 @@
+{
+  "name": "create-tk-node-app",
+  "version": "1.0.3",
+  "description": "CLI to scaffold Node.js projects",
+  "bin": {
+    "create-tk-node-app": "bin/index.js"
+  },
+  "type": "module",
+  "files": [
+    "bin",
+    "templates"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.0",
+    "fs-extra": "^11.2.0",
+    "bcryptjs": "^2.4.3",
+    "ora": "^7.0.1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+	"api": {
+		"errors": {
+			"EmailNotValid": "Entered email is not valid.",
+			"EmailRequired": "Email is required.",
+			"FirstNameRequired": "User name is required.",
+			"NameLength": "Please enter valid  name length.",
+			"PhoneNumberRequired": "Please enter phone number.",
+		},
+		"msg": {
+			"Success": "Success!",
+			"Signup": "Thank you for registering.",
+			"Login": "You have successfully logged in!",
+			
+		}
+	}
+}

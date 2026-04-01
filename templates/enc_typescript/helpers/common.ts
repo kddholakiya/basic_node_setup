@@ -1,0 +1,303 @@
+import jwt, { decode } from "jsonwebtoken";
+import { HttpCodes } from "./responseCodes";
+import { Types } from 'mongoose';
+import smtpTransport from 'nodemailer-smtp-transport';
+import nodemailer from 'nodemailer';
+import uuid4 from "uuid4";
+import { createCipheriv, createDecipheriv } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+import { body, validationResult } from 'express-validator';
+import * as CryptoJS from "crypto-js";
+import { createDat, decrypt } from "./Crypto";
+import user from "../model/user";
+import { NextFunction, Request, Response } from "express";
+import userLogin, { IUserLogin } from "../model/userLogin";
+require('dotenv').config();
+
+// const decryptHost = decrypt(process.env.emailHost)
+// const emailPort = decrypt(process.env.emailPort)
+// const decryptEmailUser = decrypt(process.env.emailUser)
+// const decryptEmailPassword = decrypt(process.env.emailPassword)
+
+
+
+
+
+// const transporter = nodemailer.createTransport(smtpTransport({
+//   host: decryptHost,
+//   port: Number(emailPort),
+//   secure: true,
+//   auth: {
+//     user: decryptEmailUser,
+//     pass: decryptEmailPassword
+//   }
+// }));
+
+
+
+export default class CommanController {
+  constructor() {
+    this.getEpoch = this.getEpoch.bind(this);
+    this.CreateJwt = this.CreateJwt.bind(this);
+    this.VerifyJwt = this.VerifyJwt.bind(this);
+    this.CheckValidationError = this.CheckValidationError.bind(this);
+    // this.SendMail = this.SendMail.bind(this);
+    this.commonResponse = this.commonResponse.bind(this);
+    this.encryptVerifyToken = this.encryptVerifyToken.bind(this);
+    this.DecryptPayload = this.DecryptPayload.bind(this);
+    this.UUID = this.UUID.bind(this);
+  }
+
+
+
+  async getEpoch() {
+    return Math.floor(Date.now() / 1000);
+  }
+
+  async commonResponse(res: any, error: any, result: any) {
+    if (error) {
+      res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'], data: error, total: 0 });
+    } else {
+      if (result && result.status === "customError") {
+        res.status(200).json({ status: false, message: res.__(`api.errors.${result.msg}`), code: result.code, data: result.data, total: result?.total });
+      } else {
+        res.status(200).json({ status: true, message: res.__(`api.msg.${result.msg}`), code: result.code, data: result.data, total: result?.total, pageNumber: result?.pageNumber });
+      }
+    }
+  }
+
+  //create jwt newToken
+  async CreateJwt(data: any) {
+    const decryptApisecretkey = decrypt(process.env.jwtSecret);
+    const decryptJWT_EXPIRATION: any = decrypt(process.env.JWT_EXPIRATION)
+    console.log(decryptJWT_EXPIRATION, "expiretime");
+    return jwt.sign(data, decryptApisecretkey, { expiresIn: decryptJWT_EXPIRATION });;
+  }
+
+  //create verify token
+  async encryptVerifyToken() {
+    let verifyToken = uuid4();
+    return verifyToken;
+  }
+
+  // Verify jwt token
+  async VerifyJwt(req: Request, res: Response, next: NextFunction) {
+    try {
+      let token
+      let accessKey;
+      token = req.headers['authorization']
+      accessKey = req.headers['x-access-key'];
+
+      if (!token && token == null && token == undefined && !accessKey && accessKey == null && accessKey == undefined) {
+        return res.status(200).json({ status: false, message: res.__("api.errors.TokenNotProvided"), code: HttpCodes['UNAUTHORIZED'] });
+      }
+      let decryptToken;
+
+      const KEY = process.env.chadb_url + process.env.hard_cord_url + '62';
+      const IV = process.env.snap_art + process.env.sudo_apply + 'vn';
+
+      const decryptWebKey = decrypt(process.env.WebKey);  // adbohkjfbdshjbsdjffkbj use this value for swagger 
+      const decryptMobileKey = decrypt(process.env.mobileKey)
+
+      if (accessKey == decryptWebKey) {
+        const text = CryptoJS.AES.decrypt(token, KEY);
+        decryptToken = JSON.parse(text.toString(CryptoJS.enc.Utf8));
+        req['body']['type'] = 1
+        req['bodyType'] = 1
+        req['userToken'] = decryptToken
+
+      } else if (accessKey == decryptMobileKey) {
+
+        //check createdat 
+        let datsat = createDat()
+        const decipher = createDecipheriv(datsat, KEY, IV);
+        let decrypted = decipher.update(token, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        var trimData = decrypted.trim()
+        decryptToken = trimData
+        req['body']['type'] = 2
+        req['bodyType'] = 2
+        req['userToken'] = decryptToken
+      }
+      const decryptApisecretkey = decrypt(process.env.jwtSecret)
+      // const decoded = jwt.verify(decryptToken, decryptApisecretkey);
+      const decoded = jwt.verify(decryptToken, decryptApisecretkey)
+      const checkUserExist = await user.findOne({ _id: new Types.ObjectId(decoded['_id']), isDelete: false })
+      if (!checkUserExist) {
+        return res.status(200).json({
+          status: false,
+          message: res.__("api.errors.notValid"),
+          code: HttpCodes['UNAUTHORIZED']
+        });
+      }
+      if (decoded) {
+        const currentTime = await this.getEpoch()
+        let users: IUserLogin = await userLogin.findOne({ authToken: decryptToken });
+        if (users.originalPassword == false && (Number(checkUserExist.tempPasswordExpireAt) < Number(currentTime))) {
+          return res.status(200).json({
+            status: false,
+            message: res.__("api.errors.tempPasswordExpire"),
+            code: HttpCodes['UNAUTHORIZED']
+          });
+        }
+        if (users && users !== null && users !== undefined) {
+          req['user'] = decoded
+           next();
+        } else {
+       return res.status(200).json({ status: false, message: res.__("api.errors.sessionExpire"), code: HttpCodes['UNAUTHORIZED'] });
+        }
+      } else {
+       return res.status(200).json({ status: false, message: res.__("api.errors.InvalidToken"), code: HttpCodes['UNAUTHORIZED'] });
+      }
+    } catch (error) {
+      if (error.name == 'TokenExpiredError') {
+      return res.status(401).json({ status: false, message: res.__("api.errors.sessionExpire"), code: HttpCodes['UNAUTHORIZED'] });
+      }else{
+       return res.status(200).json({ status: false, message: res.__("api.errors.InvalidToken"), code: HttpCodes['UNAUTHORIZED'] });
+      }
+    }
+  }
+
+  async DecryptPayload(req: Request, res: Response, next: NextFunction) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'] });
+      } else {
+
+        const envKey: String = process.env.chadb_url + process.env.hard_cord_url
+        const encIv: String = process.env.snap_art + process.env.sudo_apply
+        const KEY: any = envKey + "62";
+        const IV: any = encIv + "vn";
+
+        console.log(req.body, "body>>>>>>>>>>>>>>>>>");
+        const type = req.body.type
+        if (!req.body.type) {
+          res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'], data: {} });
+        }
+        // for web 
+        if (req.body.type == 1) {
+          try {
+            const text = CryptoJS.AES.decrypt(req.body.data, KEY);
+            req.body = JSON.parse(text.toString(CryptoJS.enc.Utf8));
+            req.body['type'] = type
+            return next();
+          } catch (error) {
+            return res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'] });
+          }
+
+        }
+        // for mobile
+
+        else if (req.body.type == 2) {
+          try {
+            let datset = createDat()
+            const decipher = createDecipheriv(datset, KEY, IV);
+            let decrypted = decipher.update(req.body.data, 'hex', 'utf8');
+            decrypted += decipher.final('utf8');
+            req.body = JSON.parse(decrypted)
+
+            req.body["type"] = type
+            return next();
+          } catch (error) {
+            return res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'] });
+          }
+
+        } else {
+          return res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'] });
+        }
+      }
+    } catch (error) {
+      return res.status(200).json({ status: false, message: res.__("api.errors.SomethingWrong"), code: HttpCodes['BAD_REQUEST'] });
+    }
+
+  }
+
+  async encryptionData(type: any, data: any) {
+    let jsonData = JSON.stringify(data)
+
+    const KEY = process.env.chadb_url + process.env.hard_cord_url + '62';
+    const IV = process.env.snap_art + process.env.sudo_apply + 'vn'
+    if (type == 1) { //web
+      const encryptedData = CryptoJS.AES.encrypt(jsonData, KEY);
+      const encryptedDataString = await encryptedData.toString();
+      return encryptedDataString;
+    } else if (type == 2) { //mobile
+      const cipher = createCipheriv('aes-256-cbc', KEY, IV);
+      let encrypted = await cipher.update(jsonData, 'utf8', 'hex');
+      encrypted += await cipher.final('hex');
+      return encrypted;
+    } else {
+      return ""
+    }
+  }
+
+  async generateRandomPassword(): Promise<string> {
+    const lowercaseChars = 'abcdefghijklmnopqrstuvwxyz';
+    const uppercaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const specialChars = '!@#$%&*?';
+    const numbers = '0123456789';
+    const length = 8
+    const allChars = lowercaseChars + uppercaseChars + specialChars + numbers;
+    let password: any = '';
+
+    // Ensure at least one character from each category
+    password += lowercaseChars[Math.floor(Math.random() * lowercaseChars.length)];
+    password += uppercaseChars[Math.floor(Math.random() * uppercaseChars.length)];
+    password += specialChars[Math.floor(Math.random() * specialChars.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+
+    // Fill the rest of the password with random characters
+    for (let i = 4; i < length; i++) {
+      password += allChars[Math.floor(Math.random() * allChars.length)];
+    }
+
+    // Shuffle the characters to make it more random
+    password = password.split('');
+    for (let i = password.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [password[i], password[j]] = [password[j], password[i]];
+    }
+
+    return password.join('');
+  }
+
+  // Created Send Mail Function to send OTP in Email.
+  // async SendMail(tempatePath: any, emailData: any) {
+  //   const compiledTemplate = ejs.compile(tempatePath);
+  //   const renderedTemplate = compiledTemplate(emailData);
+  //   var decryptEmailFrom = decrypt(process.env.emailFrom)
+  //   var mailOptions = {
+  //     from: decryptEmailFrom,
+  //     to: emailData.to,
+  //     subject: emailData.subject,
+  //     html: renderedTemplate
+  //   };
+  //   return new Promise((resolve, reject) => {
+  //     transporter.sendMail(mailOptions, function (error: any, data: any) {
+  //       if (error) {
+  //         console.log(error);
+  //         resolve({ status: false, data: null });
+  //       } else {
+  //         resolve({ status: true, data: data });
+  //       }
+  //     });
+  //   });
+  // }
+
+  /// check validation error before API responce
+  async CheckValidationError(req: Request, res: Response, next: NextFunction) {
+    const errors = await validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(200).json({ status: false, message: res.__(`api.errors.${errors.array()[0].msg}`), code: HttpCodes['CONTENT_NOT_FOUND'], data: {} });
+    } else {
+      next();
+    }
+  }
+
+
+  async UUID() {
+    return uuidv4();;
+  }
+
+}

@@ -1,0 +1,19 @@
+# dotenv environment variables file
+.env
+# .env.example
+# dependencies
+node_modules/
+uploads/
+
+# Ingore Dist File
+dist/
+package-lock.json 
+
+# Ignore Vscode
+.vscode/
+
+#local db 
+local.db
+LocalDatabase
+
+git-script.bat
