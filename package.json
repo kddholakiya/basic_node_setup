@@ -1,6 +1,6 @@
 {
   "name": "create-tk-node-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CLI to scaffold Node.js projects",
   "bin": {
     "create-tk-node-app": "bin/index.js"
